@@ -1,72 +1,51 @@
-const dagre = require('dagre');
-const debug = require('debug')('scope:nodes-layout');
 const _ = require('lodash');
+const d3 = require('d3');
+const webcola = require('webcola');
+const debug = require('debug')('scope:nodes-layout');
 
 const MAX_NODES = 100;
 
-const doLayout = function(nodes, edges, width, height, scale, margins) {
-  let offsetX = 0 + margins.left;
-  let offsetY = 0 + margins.top;
-  const g = new dagre.graphlib.Graph({});
-
+const doLayout = function(nodes, edges, width, height, scale) {
   if (_.size(nodes) > MAX_NODES) {
-    debug('Too many nodes for graph layout engine. Limit: ' + MAX_NODES);
-    return null;
+    debug('Too many nodes to lay out.');
+    return {height: 0, width: 0};
   }
 
-  // configure node margins
+  const cola = new webcola.Layout()
+    .avoidOverlaps(true)
+    .size([width, height]);
 
-  g.setGraph({
-    nodesep: scale(2.5),
-    ranksep: scale(2.5)
+  const nodeList = _.values(nodes);
+  const edgeList = _.values(edges);
+
+  nodeList.forEach(function(v) {
+    v.height = scale(2.25);
+    v.width = scale(2.25);
   });
 
-  // add nodes and edges to layout engine
+  debug('graph layout for node count: ' + _.size(nodes));
 
-  _.each(nodes, function(node) {
-    g.setNode(node.id, {id: node.id, width: scale(0.75), height: scale(0.75)});
-  });
+  cola
+    .convergenceThreshold(1e-3)
+    .nodes(nodeList)
+    .links(edgeList)
+    // .flowLayout('y', 150)
+    // .jaccardLinkLengths(20)
+    .start(10, 20, 40);
 
-  _.each(edges, function(edge) {
-    const virtualNodes = edge.source.id === edge.target.id ? 1 : 0;
-    g.setEdge(edge.source.id, edge.target.id, {id: edge.id, minlen: virtualNodes});
-  });
+  debug('graph layout done');
 
-  dagre.layout(g);
-
-  const graph = g.graph();
-
-  // shifting graph coordinates to center
-
-  if (graph.width < width) {
-    offsetX = (width - graph.width) / 2 + margins.left;
-  }
-  if (graph.height < height) {
-    offsetY = (height - graph.height) / 2 + margins.top;
-  }
-
-  // apply coordinates to nodes and edges
-
-  g.nodes().forEach(function(id) {
-    const node = nodes[id];
-    const graphNode = g.node(id);
-    node.x = graphNode.x + offsetX;
-    node.y = graphNode.y + offsetY;
-  });
-
-  g.edges().forEach(function(id) {
-    const graphEdge = g.edge(id);
-    const edge = edges[graphEdge.id];
-    _.each(graphEdge.points, function(point) {
-      point.x += offsetX;
-      point.y += offsetY;
-    });
-    edge.points = graphEdge.points;
-  });
+  const extentX = d3.extent(nodeList, function(n) { return n.x; });
+  const extentY = d3.extent(nodeList, function(n) { return n.y; });
 
   // return object with width and height of layout
 
-  return graph;
+  return {
+    left: extentX[0],
+    height: extentY[1] - extentY[0],
+    top: extentY[0],
+    width: extentX[1] - extentX[0]
+  };
 };
 
 module.exports = {

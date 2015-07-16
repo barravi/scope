@@ -2,7 +2,6 @@ const _ = require('lodash');
 const d3 = require('d3');
 const debug = require('debug')('scope:nodes-chart');
 const React = require('react');
-const timely = require('timely');
 
 const Edge = require('./edge');
 const Naming = require('../constants/naming');
@@ -20,10 +19,10 @@ const NodesChart = React.createClass({
 
   getInitialState: function() {
     return {
-      nodes: {},
-      edges: {},
+      nodes: [],
+      edges: [],
       nodeScale: 1,
-      translate: '0,0',
+      translate: [0, 0],
       scale: 1,
       hasZoomed: false
     };
@@ -45,8 +44,8 @@ const NodesChart = React.createClass({
   componentWillReceiveProps: function(nextProps) {
     if (this.getTopologyFingerprint(nextProps.nodes) !== this.getTopologyFingerprint(this.props.nodes)) {
       this.setState({
-        nodes: {},
-        edges: {}
+        nodes: [],
+        edges: []
       });
     }
 
@@ -89,25 +88,34 @@ const NodesChart = React.createClass({
           pseudo={node.pseudo}
           subLabel={node.subLabel}
           scale={scale}
-          dx={node.x}
-          dy={node.y}
+          dx={node.x + MARGINS.left}
+          dy={node.y + MARGINS.top}
         />
       );
     }, this);
   },
 
-  renderGraphEdges: function(edges) {
+  renderGraphEdges: function() {
+    const edges = this.state.edges;
+
     return _.map(edges, function(edge) {
       const highlighted = _.includes(this.props.highlightedEdgeIds, edge.id);
+      const points = [{
+        x: edge.source.x + MARGINS.left,
+        y: edge.source.y + MARGINS.top
+      }, {
+        x: edge.target.x + MARGINS.left,
+        y: edge.target.y + MARGINS.top
+      }];
       return (
-        <Edge key={edge.id} id={edge.id} points={edge.points} highlighted={highlighted} />
+        <Edge key={edge.id} id={edge.id} points={points} highlighted={highlighted} />
       );
     }, this);
   },
 
   render: function() {
     const nodeElements = this.renderGraphNodes(this.state.nodes, this.state.nodeScale);
-    const edgeElements = this.renderGraphEdges(this.state.edges, this.state.nodeScale);
+    const edgeElements = this.renderGraphEdges();
     const transform = 'translate(' + this.state.translate + ')' +
       ' scale(' + this.state.scale + ')';
 
@@ -186,34 +194,46 @@ const NodesChart = React.createClass({
   updateGraphState: function(props) {
     const nodes = this.initNodes(props.nodes, this.state.nodes);
     const edges = this.initEdges(props.nodes, nodes);
-
+    const width = props.width - MARGINS.left - MARGINS.right;
+    const height = props.height - MARGINS.top - MARGINS.bottom;
     const expanse = Math.min(props.height, props.width);
     const nodeSize = expanse / 2;
     const n = _.size(props.nodes);
     const nodeScale = d3.scale.linear().range([0, nodeSize / Math.pow(n, 0.7)]);
 
-    const timedLayouter = timely(NodesLayout.doLayout);
-    const graph = timedLayouter(
+    const graph = NodesLayout.doLayout(
       nodes,
       edges,
-      props.width,
-      props.height,
+      width,
+      height,
       nodeScale,
       MARGINS
     );
-
-    debug('graph layout took ' + timedLayouter.time + 'ms');
 
     // adjust layout based on viewport
 
     const xFactor = (props.width - MARGINS.left - MARGINS.right) / graph.width;
     const yFactor = props.height / graph.height;
+    const xOffset = graph.left;
+    const yOffset = graph.top;
     const zoomFactor = Math.min(xFactor, yFactor);
     let zoomScale = this.state.scale;
+    let translate = this.state.translate;
 
     if (this.zoom && !this.state.hasZoomed && zoomFactor > 0 && zoomFactor < 1) {
       zoomScale = zoomFactor;
+
+      if (xOffset < 0) {
+        translate[0] = xOffset * -1 * zoomFactor;
+      }
+      if (yOffset < 0) {
+        translate[1] = yOffset * -1 * zoomFactor;
+      }
+
       // saving in d3's behavior cache
+      debug('adjust graph', graph, translate, zoomFactor);
+
+      this.zoom.translate(translate);
       this.zoom.scale(zoomFactor);
     }
 
@@ -221,7 +241,8 @@ const NodesChart = React.createClass({
       nodes: nodes,
       edges: edges,
       nodeScale: nodeScale,
-      scale: zoomScale
+      scale: zoomScale,
+      translate: translate
     });
   },
 
