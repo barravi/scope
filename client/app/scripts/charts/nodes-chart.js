@@ -9,10 +9,10 @@ const NodesLayout = require('./nodes-layout');
 const Node = require('./node');
 
 const MARGINS = {
-  top: 130,
+  top: 100,
   left: 40,
   right: 40,
-  bottom: 0
+  bottom: 20
 };
 
 const NodesChart = React.createClass({
@@ -22,7 +22,7 @@ const NodesChart = React.createClass({
       nodes: [],
       edges: [],
       nodeScale: 1,
-      translate: [0, 0],
+      translate: [MARGINS.left, MARGINS.top],
       scale: 1,
       hasZoomed: false
     };
@@ -88,8 +88,8 @@ const NodesChart = React.createClass({
           pseudo={node.pseudo}
           subLabel={node.subLabel}
           scale={scale}
-          dx={node.x + MARGINS.left}
-          dy={node.y + MARGINS.top}
+          dx={node.x}
+          dy={node.y}
         />
       );
     }, this);
@@ -101,11 +101,11 @@ const NodesChart = React.createClass({
     return _.map(edges, function(edge) {
       const highlighted = _.includes(this.props.highlightedEdgeIds, edge.id);
       const points = [{
-        x: edge.source.x + MARGINS.left,
-        y: edge.source.y + MARGINS.top
+        x: edge.source.x,
+        y: edge.source.y
       }, {
-        x: edge.target.x + MARGINS.left,
-        y: edge.target.y + MARGINS.top
+        x: edge.target.x,
+        y: edge.target.y
       }];
       return (
         <Edge key={edge.id} id={edge.id} points={points} highlighted={highlighted} />
@@ -212,30 +212,35 @@ const NodesChart = React.createClass({
 
     // adjust layout based on viewport
 
-    const xFactor = (props.width - MARGINS.left - MARGINS.right) / graph.width;
-    const yFactor = props.height / graph.height;
+    const xFactor = width / graph.width;
+    const yFactor = height / graph.height;
     const xOffset = graph.left;
     const yOffset = graph.top;
     const zoomFactor = Math.min(xFactor, yFactor);
     let zoomScale = this.state.scale;
     let translate = this.state.translate;
 
-    if (this.zoom && !this.state.hasZoomed && zoomFactor > 0 && zoomFactor < 1) {
-      zoomScale = zoomFactor;
+    if (this.zoom && !this.state.hasZoomed) {
+      if (zoomFactor > 0 && zoomFactor < 1) {
+        zoomScale = zoomFactor;
+        // saving in d3's behavior cache
+        this.zoom.scale(zoomFactor);
+      }
 
       if (xOffset < 0) {
-        translate[0] = xOffset * -1 * zoomFactor;
+        translate[0] = xOffset * -1 * zoomScale + MARGINS.left;
       }
       if (yOffset < 0) {
-        translate[1] = yOffset * -1 * zoomFactor;
+        translate[1] = yOffset * -1 * zoomScale + MARGINS.top;
       }
 
       // saving in d3's behavior cache
-      debug('adjust graph', graph, translate, zoomFactor);
-
       this.zoom.translate(translate);
-      this.zoom.scale(zoomFactor);
     }
+
+    const minY = _.pluck(nodes, 'y');
+
+    debug('adjust graph', graph, translate, zoomScale, d3.min(minY));
 
     this.setState({
       nodes: nodes,
