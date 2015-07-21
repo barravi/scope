@@ -24,6 +24,7 @@ const NodesChart = React.createClass({
       nodeScale: 1,
       translate: [MARGINS.left, MARGINS.top],
       scale: 1,
+      initialLayout: true,
       hasZoomed: false
     };
   },
@@ -45,7 +46,8 @@ const NodesChart = React.createClass({
     if (this.getTopologyFingerprint(nextProps.nodes) !== this.getTopologyFingerprint(this.props.nodes)) {
       this.setState({
         nodes: [],
-        edges: []
+        edges: [],
+        initialLayout: true
       });
     }
 
@@ -201,17 +203,14 @@ const NodesChart = React.createClass({
     const n = _.size(props.nodes);
     const nodeScale = d3.scale.linear().range([0, nodeSize / Math.pow(n, 0.7)]);
 
-    const graph = NodesLayout.doLayout(
-      nodes,
-      edges,
-      width,
-      height,
-      nodeScale,
-      MARGINS
-    );
+    let graph = NodesLayout.doLayout(nodes, edges, width, height, nodeScale);
+    if (this.state.initialLayout && graph.width > 0) {
+      debug('running layout twice to reduce jitter on initial layout');
+      graph = NodesLayout.doLayout(nodes, edges, width, height, nodeScale);
+    }
 
     // adjust layout based on viewport
-
+    const empty = graph.width === 0;
     const xFactor = width / graph.width;
     const yFactor = height / graph.height;
     const xOffset = graph.left;
@@ -221,33 +220,40 @@ const NodesChart = React.createClass({
     let translate = this.state.translate;
 
     if (this.zoom && !this.state.hasZoomed) {
+      let adjusted = false;
+
       if (zoomFactor > 0 && zoomFactor < 1) {
         zoomScale = zoomFactor;
         // saving in d3's behavior cache
         this.zoom.scale(zoomFactor);
+        adjusted = true;
       }
 
       if (xOffset < 0) {
         translate[0] = xOffset * -1 * zoomScale + MARGINS.left;
+        adjusted = true;
       }
+
       if (yOffset < 0) {
         translate[1] = yOffset * -1 * zoomScale + MARGINS.top;
+        adjusted = true;
       }
 
       // saving in d3's behavior cache
       this.zoom.translate(translate);
+
+      if (adjusted) {
+        debug('adjust graph', graph, translate, zoomScale);
+      }
     }
-
-    const minY = _.pluck(nodes, 'y');
-
-    debug('adjust graph', graph, translate, zoomScale, d3.min(minY));
 
     this.setState({
       nodes: nodes,
       edges: edges,
       nodeScale: nodeScale,
       scale: zoomScale,
-      translate: translate
+      translate: translate,
+      initialLayout: empty
     });
   },
 
