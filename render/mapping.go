@@ -71,7 +71,7 @@ func MapProcessIdentity(m report.NodeMetadata) (RenderableNode, bool) {
 		id    = MakeProcessID(report.ExtractHostID(m), m["pid"])
 		major = m["comm"]
 		minor = fmt.Sprintf("%s (%s)", report.ExtractHostID(m), m["pid"])
-		rank  = m["pid"]
+		rank  = m["comm"]
 	)
 
 	return NewRenderableNode(id, major, minor, rank, m), true
