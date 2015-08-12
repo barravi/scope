@@ -127,3 +127,17 @@ func (t Topology) Validate() error {
 
 	return nil
 }
+
+func (t Topology) Copy() Topology {
+	other := NewTopology()
+	for id, list := range t.Adjacency {
+		other.Adjacency[id] = list
+	}
+	for id, md := range t.EdgeMetadatas {
+		other.EdgeMetadatas[id] = md
+	}
+	for id, md := range t.NodeMetadatas {
+		other.NodeMetadatas[id] = md
+	}
+	return other
+}
