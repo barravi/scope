@@ -2,91 +2,43 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"unicode/utf8"
 )
 
-func parseExpressions(strs []string) []expression {
-	exprs := []expression{}
-	for _, str := range strs {
-		expr, err := parseExpression(str)
-		if err != nil {
-			log.Print(err)
-			continue
-		}
-		log.Printf("%s: OK", str)
-		exprs = append(exprs, expr)
-	}
-	return exprs
-}
-
-func parseExpression(str string) (expression, error) {
-	var (
-		expr   expression
-		invert bool
-	)
-
-	_, c := lex("expression", str)
-	for item := range c {
-		switch item.itemType {
-		case itemNot:
-			invert = !invert
-
-		case itemAll:
-			expr.selector = selectAll
-
-		case itemConnected:
-			expr.selector = selectConnected
-
-		case itemTouched:
-			expr.selector = selectTouched
-
-		case itemLike:
-			item = <-c
-			if item.itemType == itemError {
-				return expression{}, fmt.Errorf(item.literal)
-			}
-			expr.selector = selectLike(item.literal)
-
-		case itemWith:
-			item = <-c
-			switch item.itemType {
-			case itemKeyValue:
-				expr.selector = selectWith(item.literal)
-			default:
-				return expression{}, fmt.Errorf("bad WITH: %s", item.literal)
-			}
-
-		case itemRemove:
-			expr.transformer = transformRemove
-
-		case itemShowOnly:
-			expr.transformer = transformShowOnly
-
-		case itemMerge:
-			expr.transformer = transformMerge
-
-		case itemGroupBy:
-			item = <-c
-			if item.itemType == itemError {
-				return expression{}, fmt.Errorf(item.literal)
-			}
-			expr.transformer = transformGroupBy(item.literal)
-
-		default:
-			return expression{}, fmt.Errorf("%s: %s", str, item.literal)
-		}
-	}
-	if invert {
-		expr.selector = selectNot(expr.selector)
-	}
-	return expr, nil
-}
-
 // Expression  = [NOT] Selector Transformer
 // Selector    = ALL / CONNECTED / TOUCHED / LIKE {{ <regex> }} / WITH {{ <key> [= <value>] }}
 // Transformer = REMOVE / SHOWONLY / MERGE / GROUPBY {{ <key>, ... }}
+
+type lexer struct {
+	input string // string being scanned
+	start int    // start position of this item
+	pos   int    // current position within the input
+	width int    // width of last rune read
+	items chan item
+}
+
+func lex(input string) (*lexer, <-chan item) {
+	l := &lexer{
+		input: input,
+		items: make(chan item),
+	}
+	go l.run()
+	return l, l.items
+}
+
+const (
+	keywordNot       = "NOT"
+	keywordAll       = "ALL"
+	keywordConnected = "CONNECTED"
+	keywordTouched   = "TOUCHED"
+	keywordLike      = "LIKE"
+	keywordWith      = "WITH"
+	keywordRemove    = "REMOVE"
+	keywordShowOnly  = "SHOWONLY"
+	keywordMerge     = "MERGE"
+	keywordGroupBy   = "GROUPBY"
+)
 
 type itemType int
 
@@ -107,26 +59,42 @@ const (
 	itemKeyList
 )
 
-type stateFn func(*lexer) stateFn
-
-type lexer struct {
-	name  string // used only for errors
-	input string // string being scanned
-	start int    // start position of this item
-	pos   int    // current position within the input
-	width int    // width of last rune read
-	items chan item
-}
-
-func lex(name, input string) (*lexer, <-chan item) {
-	l := &lexer{
-		name:  name,
-		input: input,
-		items: make(chan item),
+func (t itemType) String() string {
+	switch t {
+	case itemError:
+		return "ERROR"
+	case itemNot:
+		return keywordNot
+	case itemAll:
+		return keywordAll
+	case itemConnected:
+		return keywordConnected
+	case itemTouched:
+		return keywordTouched
+	case itemRemove:
+		return keywordRemove
+	case itemShowOnly:
+		return keywordShowOnly
+	case itemMerge:
+		return keywordMerge
+	case itemGroupBy:
+		return keywordGroupBy
+	case itemLike:
+		return keywordLike
+	case itemWith:
+		return keywordWith
+	case itemRegex:
+		return "<regex>"
+	case itemKeyValue:
+		return "<key=value>"
+	case itemKeyList:
+		return "<key list>"
+	default:
+		return "unknown"
 	}
-	go l.run()
-	return l, l.items
 }
+
+type stateFn func(*lexer) stateFn
 
 func (l *lexer) run() {
 	for state := lexExpression; state != nil; {
@@ -152,22 +120,7 @@ func (l *lexer) next() (r rune) {
 	return r
 }
 
-//func (l *lexer) ignore()    { l.start = l.pos }
-
 func (l *lexer) backup() { l.pos -= l.width }
-
-//func (l *lexer) peek() rune { r := l.next(); l.backup(); return r }
-
-/*
-// acceptOne consumes the next rune if it's from the valid set.
-func (l *lexer) acceptOne(validSet string) bool {
-	if strings.IndexRune(validSet, l.next()) >= 0 {
-		return true
-	}
-	l.backup()
-	return false
-}
-*/
 
 // acceptRun consumes a run of runes from the valid set.
 func (l *lexer) acceptRun(validSet string) {
@@ -192,18 +145,9 @@ type item struct {
 	literal  string
 }
 
-const (
-	keywordNot       = "NOT"
-	keywordAll       = "ALL"
-	keywordConnected = "CONNECTED"
-	keywordTouched   = "TOUCHED"
-	keywordLike      = "LIKE"
-	keywordWith      = "WITH"
-	keywordRemove    = "REMOVE"
-	keywordShowOnly  = "SHOWONLY"
-	keywordMerge     = "MERGE"
-	keywordGroupBy   = "GROUPBY"
-)
+func (i item) String() string {
+	return fmt.Sprintf("%s %q", i.itemType, i.literal)
+}
 
 func lexExpression(l *lexer) stateFn {
 	l.eatWhitespace()
@@ -324,7 +268,7 @@ const (
 	rightMeta = "}}"
 )
 
-func lexMeta(what string, item itemType, next stateFn) stateFn {
+func lexMeta(what string, t itemType, next stateFn) stateFn {
 	return func(l *lexer) stateFn {
 		l.eatWhitespace()
 		if !strings.HasPrefix(l.input[l.pos:], leftMeta) {
@@ -341,7 +285,7 @@ func lexMeta(what string, item itemType, next stateFn) stateFn {
 			}
 			l.pos++
 		}
-		l.emit(item)
+		l.emit(t)
 		l.pos += len(rightMeta)
 		l.start = l.pos
 		return next

@@ -4,10 +4,20 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"regexp"
 	"strings"
 
 	"github.com/weaveworks/scope/report"
 )
+
+type view []expression
+
+func (v view) eval(tpy report.Topology) report.Topology {
+	for _, expr := range v {
+		tpy = expr.eval(tpy)
+	}
+	return tpy
+}
 
 type expression struct {
 	selector
@@ -27,21 +37,47 @@ func selectAll(tpy report.Topology) []string {
 	for id := range tpy.NodeMetadatas {
 		out = append(out, id)
 	}
-	log.Printf("All: %d", len(out))
+	log.Printf("select ALL: %d", len(out))
 	return out
 }
 
 func selectConnected(tpy report.Topology) []string {
-	return []string{} // TODO
+	degree := map[string]int{}
+	for src, dsts := range tpy.Adjacency {
+		degree[src]++
+		for _, dst := range dsts {
+			degree[dst]++
+		}
+	}
+	out := []string{}
+	for id := range tpy.NodeMetadatas {
+		if degree[id] > 0 {
+			out = append(out, id)
+		}
+	}
+	log.Printf("select CONNECTED: %d", len(out))
+	return out
 }
 
 func selectTouched(tpy report.Topology) []string {
-	return []string{} // TODO
+	return selectAll(tpy) // TODO
 }
 
 func selectLike(s string) selector {
+	re, err := regexp.Compile(s)
+	if err != nil {
+		log.Printf("select LIKE: %s: %v", s, err)
+		re = regexp.MustCompile("")
+	}
 	return func(tpy report.Topology) []string {
-		return []string{} // TODO
+		out := []string{}
+		for id := range tpy.NodeMetadatas {
+			if re.MatchString(id) {
+				out = append(out, id)
+			}
+		}
+		log.Printf("select LIKE %q: %d", s, len(out))
+		return out
 	}
 }
 
@@ -62,6 +98,7 @@ func selectWith(s string) selector {
 				}
 			}
 		}
+		log.Printf("select WITH %q: %d", s, len(out))
 		return out
 	}
 }
@@ -79,6 +116,7 @@ func selectNot(s selector) selector {
 			}
 			out = append(out, id)
 		}
+		log.Printf("select NOT: %d", len(out))
 		return out
 	}
 }
@@ -95,7 +133,7 @@ func transformRemove(tpy report.Topology, ids []string) report.Topology {
 		}
 		cp(out, tpy, id)
 	}
-	log.Printf("Remove %d: in %d, out %d", len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
+	log.Printf("transform REMOVE %d: in %d, out %d", len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
 	return out
 }
 
@@ -107,7 +145,7 @@ func transformShowOnly(tpy report.Topology, ids []string) report.Topology {
 		}
 		cp(out, tpy, id)
 	}
-	log.Printf("ShowOnly %d: in %d, out %d", len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
+	log.Printf("transform SHOWONLY %d: in %d, out %d", len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
 	return out
 }
 
@@ -125,6 +163,7 @@ func transformMerge(tpy report.Topology, ids []string) report.Topology {
 			cp(out, tpy, id)
 		}
 	}
+	log.Printf("transform MERGE: in %d, out %d", len(tpy.NodeMetadatas), len(out.NodeMetadatas))
 	return out
 }
 
@@ -165,14 +204,13 @@ func transformGroupBy(s string) transformer {
 			}
 		}
 
-		log.Printf("GroupBy (%v) %d: in %d, out %d", keys, len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
+		log.Printf("transform GROUPBY (%v) %d: in %d, out %d", keys, len(ids), len(tpy.NodeMetadatas), len(out.NodeMetadatas))
 		return out
 	}
 }
 
 func cp(dst report.Topology, src report.Topology, id string) {
 	dst.NodeMetadatas[id] = src.NodeMetadatas[id]
-	dst.NodeMetadatas[id].Merge(report.MakeNodeMetadataWith(map[string]string{"touched": "true"}))
 	dst.Adjacency[id] = src.Adjacency[id]
 	for _, otherID := range dst.Adjacency[id] {
 		edgeID := report.MakeEdgeID(id, otherID)
@@ -185,7 +223,6 @@ func merge(dst report.Topology, dstID string, src report.Topology, srcID string)
 	if !ok {
 		md = report.MakeNodeMetadata()
 	}
-	md.Merge(report.MakeNodeMetadataWith(map[string]string{"touched": "true"}))
 	md.Merge(src.NodeMetadatas[srcID])
 	dst.NodeMetadatas[dstID] = md
 
