@@ -10,7 +10,7 @@ func parseView(strs []string) view {
 	for _, str := range strs {
 		expr, err := parseExpression(str)
 		if err != nil {
-			log.Print(err)
+			log.Printf("%s: %v", str, err)
 			continue
 		}
 		log.Printf("%s: OK", str)

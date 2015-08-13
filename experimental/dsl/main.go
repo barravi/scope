@@ -36,6 +36,9 @@ func main() {
 
 	// Serve HTTP
 	http.HandleFunc("/json", handleJSON(tpy))
+	http.HandleFunc("/dot", handleDOT(tpy))
+	http.HandleFunc("/svg", handleSVG(tpy))
+	http.HandleFunc("/", handleHTML)
 	log.Printf("listening on %s", *listen)
 	log.Fatal(http.ListenAndServe(*listen, nil))
 }
